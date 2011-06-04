@@ -5,34 +5,20 @@ import (
 	"os"
 	"flag"
 	"path/filepath"
+	"fmt"
 )
-
-/*Comparator	struct
- 	CmpFile 
-	CmpFile
-
-	CompareSize returns slice of matching CmpFile's
-	CompareContents	returns slice of matching CmpFile's
-	
-
-ComparableFile	struct
-	file		File
-	info 		FileInfo
-	children	[]string
-	
-	IsDirectory returns boolean
-	IsRegular returns boolean	
-	ReadFile returns []byte
-	GetChildren(recursive bool) returns []string
-*/
 
 type ComparableFile struct{
 	name string
 	info *os.FileInfo
 }
 
-func Create(filename string) (*ComparableFile) {
-	fi,_ := os.Stat(filename)
+func NewComparableFile(filename string) (*ComparableFile) {
+	fi,err := os.Stat(filename)
+	if err != nil {
+		fmt.Println(err.String())
+		os.Exit(1)	
+	}
 	return &ComparableFile{name: filename, info: fi}
 }
 
@@ -56,13 +42,28 @@ func (cmp *ComparableFile) CompareContents(tgt *ComparableFile) bool {
 	}
 	return true
 }
+
+func (cmp *ComparableFile) Compare( tgt *ComparableFile) {
+	same := cmp.CompareSize(tgt)
+	if *sizeOnly && same {
+		printSame(cmp.name, tgt.name)
+	}else{
+		if same {
+			same = cmp.CompareContents(tgt)
+			if same {
+				printSame(cmp.name, tgt.name)			
+			}
+		}
+	}
+}
+
 /*
 Parses and validates the program invocation arguments.
 If arguments are valid, it constructs two sets of comparable files. 
 Files in set 1 will be compared to files in set 2.
 If an argument is invalid, prints an error message and exits.
 */
-func initialize() ([]ComparableFile, []ComparableFile) {
+func initialize() ([]*ComparableFile, []*ComparableFile) {
 	args := flag.NArg()
 	fn1 := flag.Arg(0)
 	fn2 := flag.Arg(1)
@@ -84,43 +85,44 @@ func initialize() ([]ComparableFile, []ComparableFile) {
 	case 2:
 		// do nothing, just use the first two arguments
 	}
+/*
 	filesInDir1 := filesInDir(fn1, true)
+
 	filesInDir2 := filesInDir(fn2, true)
-	fileset1 := make([]ComparableFile, len(filesInDir1))
-	fileset2 := make([]ComparableFile, len(filesInDir1))
+
+	fileset1 := make([]*ComparableFile, len(filesInDir1))
+	fileset2 := make([]*ComparableFile, len(filesInDir2))
 	for idx, value := range filesInDir1 {
-		fileset1[idx] = ComparableFile{name: value}
+		fileset1[idx] = NewComparableFile(value)
 	}
 	for idx, value := range filesInDir2 {
-		fileset2[idx] = ComparableFile{name: value}
+		fmt.Printf("Index %d : value: %s\n", idx, value)
+		fileset2[idx] = NewComparableFile(value) //index out of range error
 	}
+*/	
+	fileset1 := createFileSet(fn1)
+	fileset2 := createFileSet(fn2)
 	return fileset1, fileset2
 }
 
-
-func (cmp *ComparableFile) Compare( tgt *ComparableFile) {
-	same := cmp.CompareSize(tgt)
-	if *sizeOnly && same {
-		printSame(cmp.name, tgt.name)
-	}else{
-		if same {
-			same = cmp.CompareContents(tgt)
-			if same {
-				printSame(cmp.name, tgt.name)			
-			}
-		}
+func createFileSet(filename string) []*ComparableFile {
+	filesInDir := filesInDir(filename, true)
+	fileset := make([]*ComparableFile, len(filesInDir))
+	for idx, value := range filesInDir {
+		fileset[idx] = NewComparableFile(value)
 	}
+	return fileset
 }
 
-func compareFileToDir(src *ComparableFile, tgt []ComparableFile) {
+func compareFileToDir(src *ComparableFile, tgt []*ComparableFile) {
 	for _, value := range tgt {
-		src.Compare(&value)
+		src.Compare(value)
 	}
 }
 
-func compareDirToDir(src, tgt []ComparableFile) {
+func compareDirToDir(src, tgt []*ComparableFile) {
 	for _, srcFile := range src {
-		compareFileToDir(&srcFile, tgt)	
+		compareFileToDir(srcFile, tgt)	
 	}
 }
 
@@ -139,7 +141,7 @@ func main() {
 	srcFileSet, tgtFileSet := initialize()
 	switch {
 	case len(srcFileSet) == 1:
-		compareFileToDir(&(srcFileSet[0]), tgtFileSet)
+		compareFileToDir(srcFileSet[0], tgtFileSet)
 	case len(srcFileSet) > 1:
 		compareDirToDir(srcFileSet, tgtFileSet)
 
