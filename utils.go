@@ -47,7 +47,7 @@ func debug(msg string, a ...interface{}) {
 }
 
 func printSame(f1, f2 string) {
-	fmt.Printf("Same:\r\t%s\r\t%s\r\r", f1, f2)
+	fmt.Printf("Same:\n\t%s\n\t%s\n\n", f1, f2)
 }
 
 func usage() {

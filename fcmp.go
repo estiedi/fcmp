@@ -22,13 +22,17 @@ func NewComparableFile(filename string) (*ComparableFile) {
 	return &ComparableFile{name: filename, info: fi}
 }
 
-func (cmp *ComparableFile) CompareSize(tgt *ComparableFile) bool {
-	return cmp.info.Size == tgt.info.Size
+func (cmp *ComparableFile) CompareSize(path string, f *os.FileInfo) bool {
+	result := cmp.info.Size == f.Size
+	if *verbose {
+		fmt.Printf("Size of %s == size of %s is %t\n", cmp.name, path, result)
+	}
+	return result
 }
 
-func (cmp *ComparableFile) CompareContents(tgt *ComparableFile) bool {
+func (cmp *ComparableFile) CompareContents(path string) bool {
 	fc1 := readFile(cmp.name)
-	fc2 := readFile(tgt.name)
+	fc2 := readFile(path)
 	la := len(fc1)
 	lb := len(fc2)
 	smallest := lb
@@ -43,92 +47,44 @@ func (cmp *ComparableFile) CompareContents(tgt *ComparableFile) bool {
 	return true
 }
 
-func (cmp *ComparableFile) Compare( tgt *ComparableFile) {
-	same := cmp.CompareSize(tgt)
+func (cmp *ComparableFile) Compare(path string, f *os.FileInfo) {
+	same := cmp.CompareSize(path, f)
 	if *sizeOnly && same {
-		printSame(cmp.name, tgt.name)
+		printSame(cmp.name, path)
 	}else{
 		if same {
-			same = cmp.CompareContents(tgt)
+			same = cmp.CompareContents(path)
 			if same {
-				printSame(cmp.name, tgt.name)			
+				printSame(cmp.name, path)			
 			}
 		}
 	}
 }
 
-/*
-Parses and validates the program invocation arguments.
-If arguments are valid, it constructs two sets of comparable files. 
-Files in set 1 will be compared to files in set 2.
-If an argument is invalid, prints an error message and exits.
-*/
-func initialize() ([]*ComparableFile, []*ComparableFile) {
-	args := flag.NArg()
-	fn1 := flag.Arg(0)
-	fn2 := flag.Arg(1)
-	fi1, _ := os.Stat(fn1)
+func (cmp *ComparableFile) VisitDir(path string, f *os.FileInfo) bool{
+	return true;
+}
 
-	switch args {
-// if no args, use the current directory
-	case 0:
-		usage()
-		os.Exit(0)
-	case 1:
-// Don't care about this. If it-s a file compare it against itself, if it's a dir compare all files in dir against each other
-		isDir := fi1.IsDirectory()
-		if isDir {
-			fn2 = fn1
-		} else {
-			fn2, _ = filepath.Split(fn1)
+func (cmp *ComparableFile) VisitFile(path string, f *os.FileInfo){
+	if *verbose {	
+		fmt.Printf("Compare %s  with %s\n", cmp.name, path)
+	}
+	cmp.Compare(path, f)
+}
+
+func createFileSet(filename string, info *os.FileInfo) []*ComparableFile {
+	if info.IsDirectory() {
+		filesInDir := filesInDir(filename, true)
+		fileset := make([]*ComparableFile, len(filesInDir))
+		for idx, value := range filesInDir {
+			fileset[idx] = NewComparableFile(value)
 		}
-	case 2:
-		// do nothing, just use the first two arguments
+		return fileset
 	}
-/*
-	filesInDir1 := filesInDir(fn1, true)
-
-	filesInDir2 := filesInDir(fn2, true)
-
-	fileset1 := make([]*ComparableFile, len(filesInDir1))
-	fileset2 := make([]*ComparableFile, len(filesInDir2))
-	for idx, value := range filesInDir1 {
-		fileset1[idx] = NewComparableFile(value)
-	}
-	for idx, value := range filesInDir2 {
-		fmt.Printf("Index %d : value: %s\n", idx, value)
-		fileset2[idx] = NewComparableFile(value) //index out of range error
-	}
-*/	
-	fileset1 := createFileSet(fn1)
-	fileset2 := createFileSet(fn2)
-	return fileset1, fileset2
+	return []*ComparableFile{NewComparableFile(filename)}
 }
 
-func createFileSet(filename string) []*ComparableFile {
-	filesInDir := filesInDir(filename, true)
-	fileset := make([]*ComparableFile, len(filesInDir))
-	for idx, value := range filesInDir {
-		fileset[idx] = NewComparableFile(value)
-	}
-	return fileset
-}
-
-func compareFileToDir(src *ComparableFile, tgt []*ComparableFile) {
-	for _, value := range tgt {
-		src.Compare(value)
-	}
-}
-
-func compareDirToDir(src, tgt []*ComparableFile) {
-	for _, srcFile := range src {
-		compareFileToDir(srcFile, tgt)	
-	}
-}
-
-
-
-var recursive = flag.Bool("r", false, "search subfolders too")
+var verbose = flag.Bool("v", false, "print lots of messages about what'sgoing on")
 var needHelp = flag.Bool("h", false, "print help and exit")
 var sizeOnly = flag.Bool("s", false, "only compare based on file size")
 
@@ -138,14 +94,42 @@ func main() {
 		help()
 		os.Exit(0)
 	}
-	srcFileSet, tgtFileSet := initialize()
-	switch {
-	case len(srcFileSet) == 1:
-		compareFileToDir(srcFileSet[0], tgtFileSet)
-	case len(srcFileSet) > 1:
-		compareDirToDir(srcFileSet, tgtFileSet)
-
+	fileSet, target := initialize()
+	for _, value := range fileSet {
+		if *verbose {
+			fmt.Printf("Processing %s\n", value.name)
+		}
+		filepath.Walk(target, value, nil)	
 	}
+}
+
+func initialize() ([]*ComparableFile, string) {
+	args := flag.NArg()
+	fn1 := flag.Arg(0)
+	fn2 := flag.Arg(1)
+	if *verbose {
+		fmt.Printf("Args: %s : %s\n", fn1, fn2)
+	}
+	// if no args, use the current directory
+	if args == 0 {
+		fn1,_ = os.Getwd()
+		fn2 = fn1
+	}
+	fi1, _ := os.Stat(fn1)
+	isDir := fi1.IsDirectory()
+	// If  fn1 is a file compare it against all the files in the same dir, if it's a dir compare all files in dir against each other
+	if args == 1 {
+		if isDir {
+			fn2 = fn1
+		}else{
+			fn2, _ = filepath.Split(fn1)		
+		}
+	}
+	filesToCompare := createFileSet(fn1, fi1) 
+	if *verbose {
+		fmt.Printf("Got %d files to compare with %s\n", len(filesToCompare), fn2)
+	}	
+	return filesToCompare, fn2
 }
 
 
