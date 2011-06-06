@@ -66,10 +66,13 @@ func (cmp *ComparableFile) VisitDir(path string, f *os.FileInfo) bool{
 }
 
 func (cmp *ComparableFile) VisitFile(path string, f *os.FileInfo){
-	if *verbose {	
-		fmt.Printf("Compare %s  with %s\n", cmp.name, path)
+	// skip if path == cmp.name, because it's the same file and always will be the same
+	if cmp.name != path {
+		if *verbose {	
+			fmt.Printf("Compare %s  with %s\n", cmp.name, path)
+		}
+		cmp.Compare(path, f)
 	}
-	cmp.Compare(path, f)
 }
 
 func createFileSet(filename string, info *os.FileInfo) []*ComparableFile {
