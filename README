@@ -1,0 +1,6 @@
+fcmp is a little tool that I created to learn the Go language. It allows to find copies of files in the file system.
+I created and use it, for example to find copies of photos: I have thousands of photos and I copy them from one computer to the other, on memory sticks, etc.
+After a while this gets messy. because metadata is sometimes removed, timestamps are lost and/or files are renamed and there is no other way than to compare the files byte by byte.
+This is exactly what fcmp does: it compares files by size and/or by contents.
+
+fcmp is released under GPLv3.
