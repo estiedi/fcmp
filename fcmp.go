@@ -1,156 +1,124 @@
 /*
-    Copyright 2011 Dirk Estievenart
+This file is part of fcmp.
 
-    This file is part of the fcmp program.
+fcmp is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+any later version.
 
-    fcmp is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
+fcmp is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+You should have received a copy of the GNU General Public License
+along with fcmp.  If not, see <http://www.gnu.org/licenses/>.
 */
 package main
 
-
 import (
 	"os"
-	"flag"
 	"path/filepath"
 	"fmt"
+	"regexp"
+	"crypto/md5"
+	"io"
+	"flag"
+	"time"
 )
 
-type ComparableFile struct{
-	name string
-	info *os.FileInfo
+var pattern = flag.String("p", ".*", "pattern to select files to compare (e.g. \"^.*.jpg$|^.*JPG$\" selects all jpg files)")
+
+type Md5File struct {
+	Path string
+	Md5  string
 }
 
-func NewComparableFile(filename string) (*ComparableFile) {
-	fi,err := os.Stat(filename)
-	if err != nil {
-		fmt.Println(err.String())
-		os.Exit(1)	
-	}
-	return &ComparableFile{name: filename, info: fi}
+type FileVisitor struct {
+	out    chan *Md5File
+	regexp *regexp.Regexp
 }
 
-func (cmp *ComparableFile) CompareSize(path string, f *os.FileInfo) bool {
-	result := cmp.info.Size == f.Size
-	if *verbose {
-		fmt.Printf("Size of %s == size of %s is %t\n", cmp.name, path, result)
-	}
-	return result
-}
-
-func (cmp *ComparableFile) CompareContents(path string) bool {
-	fc1 := readFile(cmp.name)
-	fc2 := readFile(path)
-	la := len(fc1)
-	lb := len(fc2)
-	smallest := lb
-	if la < lb {
-		smallest = la
-	}
-	for i := 0; i < smallest; i++ {
-		if fc1[i] != fc2[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func (cmp *ComparableFile) Compare(path string, f *os.FileInfo) {
-	same := cmp.CompareSize(path, f)
-	if *sizeOnly && same {
-		printSame(cmp.name, path)
-	}else{
-		if same {
-			same = cmp.CompareContents(path)
-			if same {
-				printSame(cmp.name, path)			
-			}
-		}
-	}
-}
-
-func (cmp *ComparableFile) VisitDir(path string, f *os.FileInfo) bool{
-	return true;
-}
-
-func (cmp *ComparableFile) VisitFile(path string, f *os.FileInfo){
-	// skip if path == cmp.name, because it's the same file and always will be the same
-	if cmp.name != path {
-		if *verbose {	
-			fmt.Printf("Compare %s  with %s\n", cmp.name, path)
-		}
-		cmp.Compare(path, f)
-	}
-}
-
-func createFileSet(filename string, info *os.FileInfo) []*ComparableFile {
-	if info.IsDirectory() {
-		filesInDir := filesInDir(filename, true)
-		fileset := make([]*ComparableFile, len(filesInDir))
-		for idx, value := range filesInDir {
-			fileset[idx] = NewComparableFile(value)
-		}
-		return fileset
-	}
-	return []*ComparableFile{NewComparableFile(filename)}
-}
-
-var verbose = flag.Bool("v", false, "print lots of messages about what'sgoing on")
-var needHelp = flag.Bool("h", false, "print help and exit")
-var sizeOnly = flag.Bool("s", false, "only compare based on file size")
 
 func main() {
 	flag.Parse()
-	if *needHelp {
-		help()
-		os.Exit(0)
+	filelist := make([]Md5File, 0, 100)
+	out := make(chan *Md5File)
+	errors := make(chan os.Error)
+	root := "./"
+	if flag.NArg() > 0 {
+		root = flag.Arg(0)
 	}
-	fileSet, target := initialize()
-	for _, value := range fileSet {
-		if *verbose {
-			fmt.Printf("Processing %s\n", value.name)
+	visitor := NewFileVisitor(out, *pattern)
+	go func() {
+		count := 0
+		for {
+			select {
+			case err := <-errors:
+				fmt.Println("no error expected, found: %s", err)
+			case result := <-visitor.out:
+				filelist = append(filelist, *result)
+				count++
+				fmt.Print("*")
+				if count % 80 == 0 {
+					fmt.Printf(": %d\n", count)
+				}
+			}
 		}
-		filepath.Walk(target, value, nil)	
+	}()
+	fmt.Println("Calculating md5 sum for files:")
+	startTime := time.Seconds()
+	filepath.Walk(root, visitor, errors)
+	stopTime := time.Seconds()
+	fmt.Printf("\nFinished calculating md5 sums. Files : %d in %d sec.\n", len(filelist), stopTime - startTime)
+	fmt.Println("Start sorting...")
+	bubblesort(filelist)
+	for idx := 0; idx < len(filelist)-1; idx++ {
+		if filelist[idx].Md5 == filelist[idx+1].Md5 {
+			fmt.Printf("%s : %s\n", filelist[idx].Path, filelist[idx+1].Path)
+		}
+	}
+	stopTime = time.Seconds()
+	fmt.Printf("Total time : %d sec.\n", stopTime - startTime)
+}
+
+
+func (FileVisitor) VisitDir(path string, f *os.FileInfo) bool {
+	return true
+}
+func (visitor FileVisitor) VisitFile(path string, f *os.FileInfo) {
+	if visitor.regexp.MatchString(path) {
+		md5 := calcMd5(path)
+		visitor.out <- &Md5File{path, md5}
 	}
 }
 
-func initialize() ([]*ComparableFile, string) {
-	args := flag.NArg()
-	fn1 := flag.Arg(0)
-	fn2 := flag.Arg(1)
-	if *verbose {
-		fmt.Printf("Args: %s : %s\n", fn1, fn2)
-	}
-	// if no args, use the current directory
-	if args == 0 {
-		fn1,_ = os.Getwd()
-		fn2 = fn1
-	}
-	fi1, _ := os.Stat(fn1)
-	isDir := fi1.IsDirectory()
-	// If  fn1 is a file compare it against all the files in the same dir, if it's a dir compare all files in dir against each other
-	if args == 1 {
-		if isDir {
-			fn2 = fn1
-		}else{
-			fn2, _ = filepath.Split(fn1)		
-		}
-	}
-	filesToCompare := createFileSet(fn1, fi1) 
-	if *verbose {
-		fmt.Printf("Got %d files to compare with %s\n", len(filesToCompare), fn2)
-	}	
-	return filesToCompare, fn2
+func calcMd5(path string) string {
+	md5h := md5.New()
+	md5h.Reset()
+	inFile, _ := os.Open(path)
+	defer inFile.Close()
+	io.Copy(md5h, inFile)
+	sum := fmt.Sprintf("%x", md5h.Sum())
+	return sum
 }
 
+func bubblesort(a []Md5File) {
+	for itemCount := len(a) - 1; ; itemCount-- {
+		hasChanged := false
+		for index := 0; index < itemCount; index++ {
+			if a[index].Md5 > a[index+1].Md5 {
+				a[index], a[index+1] = a[index+1], a[index]
+				hasChanged = true
+			}
+		}
+		if hasChanged == false {
+			break
+		}
+	}
+}
 
+func NewFileVisitor(out chan *Md5File, pattern string) *FileVisitor {
+	regexp := regexp.MustCompile(pattern)
+	return &FileVisitor{out, regexp}
+}

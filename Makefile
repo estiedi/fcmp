@@ -2,7 +2,6 @@ include $(GOROOT)/src/Make.inc
 
 TARG=fcmp
 GOFILES=\
-	fcmp.go\
-	utils.go
+	fcmp.go
 # for binary programs --> copied into $GOROOT/bin
 include $(GOROOT)/src/Make.cmd

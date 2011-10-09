@@ -1,6 +1,53 @@
 fcmp is a little tool that I created to learn the Go language. It allows to find copies of files in the file system.
 I created and use it, for example to find copies of photos: I have thousands of photos and I copy them from one computer to the other, on memory sticks, etc.
-After a while this gets messy. because metadata is sometimes removed, timestamps are lost and/or files are renamed and there is no other way than to compare the files byte by byte.
-This is exactly what fcmp does: it compares files by size and/or by contents.
+After a while this gets messy. because metadata is sometimes removed, timestamps are lost and/or files are renamed...
+fcmp calculates an md5 sum for each file and filters out the files with the same md5 sum.
 
 fcmp is released under GPLv3.
+
+USAGE:
+======
+
+fcmp [-p <pattern>] [path]
+
+The pattern is a regular expression that allows to limit the number of files. The pattern is applied on the filename, not on the directories.
+
+The syntax of the regular expressions accepted is:
+
+regexp:
+	concatenation { '|' concatenation }
+concatenation:
+	{ closure }
+closure:
+	term [ '*' | '+' | '?' ]
+term:
+	'^'
+	'$'
+	'.'
+	character
+	'[' [ '^' ] { character-range } ']'
+	'(' regexp ')'
+character-range:
+	character [ '-' character ]
+
+Example : to limit your search to only photos, I use the regular expression "^.*jpg$|^.*JPG$".
+
+
+The path is the root folder from where to start the search. 
+
+PERFORMANCE:
+============
+On my crappy laptop, it takes about 7-8 minutes to search through 10,000 photos (about 2MB each).
+
+OUTPUT:
+=======
+
+Output is delivered on stdout.
+
+First progress is shown, to reassure the user that the program is not hanging, but that it takes a while.
+
+Finally a list of paths is printed, showing duplicate files found. 
+Each line of the form : "/path/to/file/file1 : /path/to/file/file2" indicates that this could be a duplicate file.
+Don't take my word for it, it's just an indication that these files could have the same contents.
+
+Happy coding!
